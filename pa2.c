@@ -214,29 +214,76 @@ struct scheduler fifo_scheduler = {
  ***********************************************************************/
 static struct process *sjf_schedule(void)
 {
-	/**
-	 * Implement your own SJF scheduler here.
-	 */
-	return NULL;
+	struct process *next = NULL;
+	unsigned int min = 100000;
+
+	if (!current || current->status == PROCESS_WAIT) {
+		goto pick_next;
+	}
+	if (current->age < current->lifespan) {
+		return current;
+	}
+pick_next:
+	if (!list_empty(&readyqueue)) {
+		list_for_each_entry(next, &readyqueue, list) {
+			if (min > next->lifespan) min = next->lifespan;
+		}
+		list_for_each_entry(next, &readyqueue, list) {
+			if (min == next->lifespan) break;
+		}
+		list_del_init(&next->list);
+	}
+	return next;
 }
 
 struct scheduler sjf_scheduler = {
 	.name = "Shortest-Job First",
 	.acquire = fcfs_acquire, /* Use the default FCFS acquire() */
 	.release = fcfs_release, /* Use the default FCFS release() */
-	.schedule = NULL,		 /* TODO: Assign sjf_schedule()
+	.schedule = sjf_schedule,		 /* TODO: Assign sjf_schedule()
 								to this function pointer to activate
 								SJF in the system */
 };
 
-
 /***********************************************************************
  * SRTF scheduler
  ***********************************************************************/
+static struct process *srtf_schedule(void)
+{
+	struct process *next = NULL;
+	unsigned int min = 100000;
+
+	if (!list_empty(&readyqueue)) {
+		list_for_each_entry(next, &readyqueue, list) {
+			if (min > (next->lifespan - next->age))
+				min = next->lifespan - next->age;
+		}
+		list_for_each_entry(next, &readyqueue, list) {
+			if (min == (next->lifespan - next->age))
+				break;
+		}
+	}
+	if (!current || current->status == PROCESS_WAIT) {
+		goto pick_next;
+	}
+	if (current->age < current->lifespan) {
+		if (current->lifespan - current->age > min) {
+			list_add_tail(&current->list, &readyqueue);
+			goto pick_next;
+		}
+		return current;
+	}
+pick_next:
+	if (!list_empty(&readyqueue)) {
+		list_del_init(&next->list);
+	}
+	return next;
+}
 struct scheduler srtf_scheduler = {
 	.name = "Shortest Remaining Time First",
 	.acquire = fcfs_acquire, /* Use the default FCFS acquire() */
 	.release = fcfs_release, /* Use the default FCFS release() */
+	.schedule = srtf_schedule,
 	/* You need to check the newly created processes to implement SRTF.
 	 * Use @forked() callback to mark newly created processes */
 	/* Obviously, you should implement srtf_schedule() and attach it here */
@@ -246,24 +293,70 @@ struct scheduler srtf_scheduler = {
 /***********************************************************************
  * Round-robin scheduler
  ***********************************************************************/
+static struct process *rr_schedule(void) {
+	struct process *next = NULL;
+
+	if (!current || current->status == PROCESS_WAIT || current->age == current->lifespan) {
+		goto pick_next;
+	}
+	if (current->age < current->lifespan && list_empty(&readyqueue)) {
+		return current;
+	}
+	if (!list_empty(&readyqueue)) {
+		list_add_tail(&current->list, &readyqueue);
+		goto pick_next;
+	}
+pick_next:
+	if (!list_empty(&readyqueue)) {
+		next = list_first_entry(&readyqueue, struct process, list);
+		list_del_init(&next->list);
+	}
+	return next;
+}
 struct scheduler rr_scheduler = {
 	.name = "Round-Robin",
 	.acquire = fcfs_acquire, /* Use the default FCFS acquire() */
 	.release = fcfs_release, /* Use the default FCFS release() */
-	/* Obviously, you should implement rr_schedule() and attach it here */
+	.schedule = rr_schedule,/* Obviously, you should implement rr_schedule() and attach it here */
 };
-
 
 /***********************************************************************
  * Priority scheduler
  ***********************************************************************/
+static struct process *prio_schedule(void){
+	struct process *next = NULL;
+	struct process *temp;
+	unsigned int max;
+
+	if (!current || current->status == PROCESS_WAIT ) {
+		goto pick_next;
+	}
+	if (current->age < current->lifespan) {
+		return current;
+	}
+pick_next:
+	temp = list_first_entry(&readyqueue, struct process, list);
+	max = temp->prio_orig;
+	if (!list_empty(&readyqueue)) {
+		list_for_each_entry(next, &readyqueue, list){
+			if(max < next->prio_orig) max=next->prio_orig;
+		}
+
+		list_for_each_entry(next, &readyqueue, list){
+			if(max == next->prio_orig) break;
+		}
+		list_del_init(&next->list);
+	}
+	return next;
+}
+
 struct scheduler prio_scheduler = {
 	.name = "Priority",
 	/**
-	 * Implement your own acqure/release function to make priority
+	* Implement your own acqure/release function to make priority
 	 * scheduler correct.
 	 */
-	/* Implement your own prio_schedule() and attach it here */
+	.schedule = prio_schedule,/* Implement your own prio_schedule() and attach it here */
 };
 
 
