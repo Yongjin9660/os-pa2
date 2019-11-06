@@ -392,6 +392,7 @@ void prio_release(int resource_id)
 	assert(r->owner == current);
 
 	r->owner = NULL;
+
 	if (!list_empty(&r->waitqueue)) {
 		p = list_first_entry(&r->waitqueue, struct process, list);
 		max = p->prio_orig;
@@ -399,7 +400,6 @@ void prio_release(int resource_id)
 		list_for_each_entry(p, &r->waitqueue, list){
 			if(p->prio_orig > max) max = p->prio_orig;
 		}
-
 		list_for_each_entry(p, &r->waitqueue, list){
 			if(p->prio_orig == max)
 				break;
@@ -483,9 +483,11 @@ bool pip_acquire(int resource_id)
 		return true;
 	}
 	current->status = PROCESS_WAIT;
-	if(r->owner->prio_orig < current->prio_orig){
-		r->owner->prio = current->prio_orig;
+
+	if(r->owner->prio < current->prio){
+		r->owner->prio = current->prio;
 	}
+
 	list_add_tail(&current->list, &r->waitqueue);
 	return false;
 }
@@ -502,7 +504,7 @@ void pip_release(int resource_id)
 	
 	if (!list_empty(&r->waitqueue)) {
 		p = list_first_entry(&r->waitqueue, struct process, list);
-		max = p->prio_orig;
+		max = p->prio;
 
 		list_for_each_entry(p, &r->waitqueue, list){
 			if(p->prio > max) max = p->prio;
@@ -511,15 +513,25 @@ void pip_release(int resource_id)
 			if(p->prio == max)
 				break;
 		}
-		struct process *p = list_first_entry(&r->waitqueue, struct process, list);
-
+		
 		assert(p->status == PROCESS_WAIT);
-
 		list_del_init(&p->list);
 
-		p->status = PROCESS_READY;
-
-		list_add_tail(&p->list, &readyqueue);
+		struct resource_schedule *rs, *tmp;
+		unsigned int acn=0;
+		unsigned int hon=0;
+		struct process *temp;
+		list_for_each_entry(temp, &p->__resources_to_acquire, list){
+			acn++;
+		}
+		list_for_each_entry(temp, &p->__resources_to_acquire, list){
+			hon++;
+		}
+		if(acn == hon){
+			p->status = PROCESS_READY;
+			list_add_tail(&p->list, &readyqueue);
+			
+		}
 	}
 }
 
