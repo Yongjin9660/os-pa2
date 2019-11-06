@@ -327,21 +327,42 @@ static struct process *prio_schedule(void){
 	struct process *next = NULL;
 	struct process *temp;
 	unsigned int max;
-
-	if (!current || current->status == PROCESS_WAIT ) {
+	unsigned int check=0;
+	if (!current || current->status == PROCESS_WAIT || current->age == current->lifespan) {
 		goto pick_next;
 	}
-	if (current->age < current->lifespan) {
+	if (current->age < current->lifespan && list_empty(&readyqueue)) {
 		return current;
 	}
-pick_next:
-	temp = list_first_entry(&readyqueue, struct process, list);
-	max = temp->prio_orig;
 	if (!list_empty(&readyqueue)) {
+		max = current->prio_orig;
 		list_for_each_entry(next, &readyqueue, list){
-			if(max < next->prio_orig) max=next->prio_orig;
+			if(max < next->prio_orig) max = next->prio_orig;
 		}
+		list_for_each_entry(next, &readyqueue, list){
+			if(max == next->prio_orig){
+				check=1;
+				break;
+			}
+		}
+		if(check==1){
+			list_add_tail(&current->list, &readyqueue);
+			list_del_init(&next->list);
 
+		}else{
+			return current;
+		}
+	}
+	return next;
+
+pick_next:
+	if (!list_empty(&readyqueue)) {
+		temp = list_first_entry(&readyqueue, struct process, list);
+		max = temp->prio_orig;
+
+		list_for_each_entry(next, &readyqueue, list){
+			if(max < next->prio_orig) max = next->prio_orig;
+		}
 		list_for_each_entry(next, &readyqueue, list){
 			if(max == next->prio_orig) break;
 		}
@@ -350,24 +371,162 @@ pick_next:
 	return next;
 }
 
+bool prio_acquire(int resource_id)
+{
+	struct resource *r = resources + resource_id;
+	if (!r->owner) {
+		r->owner = current;
+		return true;
+	}
+	current->status = PROCESS_WAIT;
+	list_add_tail(&current->list, &r->waitqueue);
+	return false;
+}
+
+void prio_release(int resource_id)
+{
+	struct resource *r = resources + resource_id;
+	struct process *p;
+	
+	unsigned int max;
+	assert(r->owner == current);
+
+	r->owner = NULL;
+	if (!list_empty(&r->waitqueue)) {
+		p = list_first_entry(&r->waitqueue, struct process, list);
+		max = p->prio_orig;
+
+		list_for_each_entry(p, &r->waitqueue, list){
+			if(p->prio_orig > max) max = p->prio_orig;
+		}
+
+		list_for_each_entry(p, &r->waitqueue, list){
+			if(p->prio_orig == max)
+				break;
+		}
+		struct process *p = list_first_entry(&r->waitqueue, struct process, list);
+
+		assert(p->status == PROCESS_WAIT);
+
+		list_del_init(&p->list);
+
+		p->status = PROCESS_READY;
+
+		list_add_tail(&p->list, &readyqueue);
+	}
+}
+
 struct scheduler prio_scheduler = {
 	.name = "Priority",
-	/**
-	* Implement your own acqure/release function to make priority
-	 * scheduler correct.
-	 */
-	.schedule = prio_schedule,/* Implement your own prio_schedule() and attach it here */
+	.acquire = prio_acquire,
+	.release = prio_release,
+	.schedule = prio_schedule,
 };
-
 
 /***********************************************************************
  * Priority scheduler with priority inheritance protocol
  ***********************************************************************/
+static struct process *pip_schedule(void){
+	struct process *next = NULL;
+	struct process *temp;
+	unsigned int max;
+	unsigned int check = 0;
+
+	if (!current || current->status == PROCESS_WAIT || current->age == current->lifespan) {
+		goto pick_next;
+	}
+	if (current->age < current->lifespan && list_empty(&readyqueue)) {
+		return current;
+	}
+	if (!list_empty(&readyqueue)) {
+		max = current->prio;
+		list_for_each_entry(next, &readyqueue, list){
+			if(max < next->prio) max = next->prio;
+		}
+		list_for_each_entry(next, &readyqueue, list){
+			if(max == next->prio){
+				check=1;
+				break;
+			}
+		}
+		if(check==1){
+			list_add_tail(&current->list, &readyqueue);
+			list_del_init(&next->list);
+
+		}else{
+			return current;
+		}
+	}
+	return next;
+
+pick_next:
+	if (!list_empty(&readyqueue)) {
+		temp = list_first_entry(&readyqueue, struct process, list);
+		max = temp->prio;
+
+		list_for_each_entry(next, &readyqueue, list){
+			if(max < next->prio) max = next->prio;
+		}
+		list_for_each_entry(next, &readyqueue, list){
+			if(max == next->prio) break;
+		}
+		list_del_init(&next->list);
+	}
+	return next;
+}
+
+bool pip_acquire(int resource_id)
+{
+	struct resource *r = resources + resource_id;
+	if (!r->owner) {
+		r->owner = current;
+		return true;
+	}
+	current->status = PROCESS_WAIT;
+	if(r->owner->prio_orig < current->prio_orig){
+		r->owner->prio = current->prio_orig;
+	}
+	list_add_tail(&current->list, &r->waitqueue);
+	return false;
+}
+
+void pip_release(int resource_id)
+{
+	struct resource *r = resources + resource_id;
+	struct process *p;
+	
+	unsigned int max;
+	assert(r->owner == current);
+	r->owner->prio = r->owner->prio_orig;
+	r->owner = NULL;
+	
+	if (!list_empty(&r->waitqueue)) {
+		p = list_first_entry(&r->waitqueue, struct process, list);
+		max = p->prio_orig;
+
+		list_for_each_entry(p, &r->waitqueue, list){
+			if(p->prio > max) max = p->prio;
+		}
+		list_for_each_entry(p, &r->waitqueue, list){
+			if(p->prio == max)
+				break;
+		}
+		struct process *p = list_first_entry(&r->waitqueue, struct process, list);
+
+		assert(p->status == PROCESS_WAIT);
+
+		list_del_init(&p->list);
+
+		p->status = PROCESS_READY;
+
+		list_add_tail(&p->list, &readyqueue);
+	}
+}
+
 struct scheduler pip_scheduler = {
 	.name = "Priority + Priority Inheritance Protocol",
-	/**
-	 * Implement your own acqure/release function too to make priority
-	 * scheduler correct.
-	 */
+	.acquire = pip_acquire,
+	.release = pip_release,
+	.schedule = pip_schedule,
 	/* It goes without saying to implement your own pip_schedule() */
 };
