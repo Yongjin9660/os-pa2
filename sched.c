@@ -343,7 +343,7 @@ static void __do_simulation(void)
 				__exit_process(prev);
 			}
 		}
-
+		
 		/* No process is ready to run at this moment */
 		if (!current) {
 			/* Quit simulation if no pending process exists */
@@ -358,7 +358,7 @@ static void __do_simulation(void)
 
 		/* Execute the current process */
 		current->status = PROCESS_RUNNING;
-
+		//printf("currnet process prio : %d\n",current->prio);
 		/* Ensure that @current is detached from any list */
 		assert(list_empty(&current->list));
 
